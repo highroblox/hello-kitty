@@ -1,0 +1,620 @@
+-- Hello Kitty Lock vMax
+-- Max polished GUI with Camlock button pop-up and smooth lock-on
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local StarterGui = game:GetService("StarterGui")
+local HttpService = game:GetService("HttpService")
+
+-- Key list (case insensitive, trimmed)
+local validKeys = {
+    "hkvibes1","hkvibes2","hkvibes3","hkvibes4","hkvibes5",
+    "hkvibes6","hkvibes7","hkvibes8","hkvibes9","hkvibes10",
+    "hkvibes11","hkvibes12","hkvibes13","hkvibes14","hkvibes15",
+    "personalkey123", "staff team"
+}
+
+local function trim(s)
+    return s:match("^%s*(.-)%s*$")
+end
+
+local function isKeyValid(inputKey)
+    local key = trim(inputKey:lower())
+    for _, v in ipairs(validKeys) do
+        if v == key then return true end
+    end
+    return false
+end
+
+-- Sound function (plays click sound)
+local function playSound(parent)
+    local s = Instance.new("Sound", parent)
+    s.SoundId = "rbxassetid://9118824604"
+    s.Volume = 0.3
+    s.PlaybackSpeed = 1.1
+    s:Play()
+    game:GetService("Debris"):AddItem(s, 2)
+end
+
+-- Configuration save/load
+local configPath = "HelloKittyLockConfig.json"
+local config = {
+    CamlockPrediction = 0.1,
+    CamlockFOV = 120,
+    SilentAimMode = "Soft",
+    SilentAimSensitivity = 0.5,
+    ESPBoxes = true,
+    ESPNames = true,
+    ESPRainbowSpeed = 1,
+    AutoJump = false,
+    SpeedMultiplier = 1,
+    SoundFX = true,
+    ForceHit = false,
+    AutoStomp = false,
+}
+
+local function saveConfig()
+    if writefile then
+        local success, err = pcall(function()
+            writefile(configPath, HttpService:JSONEncode(config))
+        end)
+        if not success then
+            warn("Failed to save config:", err)
+        end
+    end
+end
+
+local function loadConfig()
+    if readfile then
+        local success, data = pcall(function()
+            return readfile(configPath)
+        end)
+        if success and data then
+            local ok, decoded = pcall(function()
+                return HttpService:JSONDecode(data)
+            end)
+            if ok and decoded then
+                for k,v in pairs(decoded) do config[k] = v end
+            end
+        end
+    end
+end
+
+loadConfig()
+
+-- Create ScreenGui for key input
+local keyUI = Instance.new("ScreenGui")
+keyUI.Name = "HelloKittyKeyUI"
+keyUI.ResetOnSpawn = false
+keyUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local function createUICorner(parent, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 18)
+    corner.Parent = parent
+    return corner
+end
+
+-- Fade Tween helper
+local TweenService = game:GetService("TweenService")
+local function fadeObject(object, goalProps, duration)
+    duration = duration or 0.3
+    local tween = TweenService:Create(object, TweenInfo.new(duration, Enum.EasingStyle.Sine), goalProps)
+    tween:Play()
+    return tween
+end
+
+-- Centered Key input frame
+local frame = Instance.new("Frame", keyUI)
+frame.Size = UDim2.new(0, 380, 0, 210)
+frame.Position = UDim2.new(0.5, -190, 0.5, -105)
+frame.BackgroundColor3 = Color3.fromRGB(255, 235, 245)
+frame.BorderSizePixel = 0
+createUICorner(frame, 20)
+
+-- Drop shadow
+local shadow = Instance.new("ImageLabel", frame)
+shadow.Size = UDim2.new(1, 20, 1, 20)
+shadow.Position = UDim2.new(0, -10, 0, -10)
+shadow.BackgroundTransparency = 1
+shadow.Image = "rbxassetid://1316045217" -- Shadow asset
+shadow.ImageColor3 = Color3.fromRGB(255, 150, 200)
+shadow.ScaleType = Enum.ScaleType.Slice
+shadow.SliceCenter = Rect.new(10,10,118,118)
+shadow.ZIndex = 0
+
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1, 0, 0, 50)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 28
+title.TextColor3 = Color3.fromRGB(255, 80, 140)
+title.Text = "🌸 Hello Kitty Lock"
+title.TextStrokeTransparency = 0.5
+title.ZIndex = 2
+
+local input = Instance.new("TextBox", frame)
+input.Size = UDim2.new(1, -60, 0, 50)
+input.Position = UDim2.new(0, 30, 0, 75)
+input.BackgroundColor3 = Color3.fromRGB(255, 210, 235)
+input.TextColor3 = Color3.fromRGB(70, 10, 50)
+input.PlaceholderText = "Enter your key here..."
+input.Font = Enum.Font.Gotham
+input.TextSize = 20
+input.ClearTextOnFocus = false
+input.ZIndex = 2
+createUICorner(input, 15)
+
+local submit = Instance.new("TextButton", frame)
+submit.Size = UDim2.new(0, 130, 0, 50)
+submit.Position = UDim2.new(1, -160, 0, 145)
+submit.BackgroundColor3 = Color3.fromRGB(255, 120, 180)
+submit.TextColor3 = Color3.new(1, 1, 1)
+submit.Font = Enum.Font.GothamBold
+submit.TextSize = 22
+submit.Text = "Unlock GUI"
+submit.ZIndex = 2
+createUICorner(submit, 15)
+
+-- Hover effect for submit button
+submit.MouseEnter:Connect(function()
+    fadeObject(submit, {BackgroundColor3 = Color3.fromRGB(255, 150, 210)}, 0.2)
+end)
+submit.MouseLeave:Connect(function()
+    fadeObject(submit, {BackgroundColor3 = Color3.fromRGB(255, 120, 180)}, 0.2)
+end)
+
+local function notify(title, text, duration)
+    StarterGui:SetCore("SendNotification", {
+        Title = title,
+        Text = text,
+        Duration = duration or 2,
+        Button1 = "OK"
+    })
+end
+
+local function destroyKeyUI()
+    fadeObject(frame, {BackgroundTransparency = 1}, 0.4):Play()
+    wait(0.4)
+    keyUI:Destroy()
+end
+
+-- Main GUI variables
+local gui, mainFrame
+local tabs = {}
+local tabContents = {}
+local toggleStates = {}
+local lockedTarget = nil
+local camlockActive = false
+
+local function createMainGUI()
+    gui = Instance.new("ScreenGui")
+    gui.Name = "HelloKittyLockGUI"
+    gui.ResetOnSpawn = false
+    gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    -- Main square frame
+    mainFrame = Instance.new("Frame", gui)
+    mainFrame.Size = UDim2.new(0, 360, 0, 360)
+    mainFrame.Position = UDim2.new(0.5, -180, 0.5, -180)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(255, 230, 245)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.ZIndex = 5
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    createUICorner(mainFrame, 20)
+
+    -- Drop shadow
+    local mainShadow = Instance.new("ImageLabel", mainFrame)
+    mainShadow.Size = UDim2.new(1, 20, 1, 20)
+    mainShadow.Position = UDim2.new(0, -10, 0, -10)
+    mainShadow.BackgroundTransparency = 1
+    mainShadow.Image = "rbxassetid://1316045217"
+    mainShadow.ImageColor3 = Color3.fromRGB(255, 150, 200)
+    mainShadow.ScaleType = Enum.ScaleType.Slice
+    mainShadow.SliceCenter = Rect.new(10,10,118,118)
+    mainShadow.ZIndex = 0
+
+    -- Xmas-themed close button ❌
+    local closeBtn = Instance.new("TextButton", mainFrame)
+    closeBtn.Size = UDim2.new(0, 38, 0, 38)
+    closeBtn.Position = UDim2.new(1, -44, 0, 8)
+    closeBtn.Text = "❌"
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 28
+    closeBtn.TextColor3 = Color3.fromRGB(255, 50, 80)
+    closeBtn.BackgroundTransparency = 0
+    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 210)
+    createUICorner(closeBtn, 14)
+    closeBtn.AutoButtonColor = false
+    closeBtn.ZIndex = 10
+
+    -- Close button hover effect
+    closeBtn.MouseEnter:Connect(function()
+        fadeObject(closeBtn, {BackgroundColor3 = Color3.fromRGB(255, 100, 130)}, 0.15)
+    end)
+    closeBtn.MouseLeave:Connect(function()
+        fadeObject(closeBtn, {BackgroundColor3 = Color3.fromRGB(255, 200, 210)}, 0.15)
+    end)
+    closeBtn.MouseButton1Click:Connect(function()
+        gui.Enabled = false
+        if config.SoundFX then playSound(mainFrame) end
+    end)
+
+    -- Tab container
+    local tabContainer = Instance.new("Frame", mainFrame)
+    tabContainer.Size = UDim2.new(1, -30, 0, 48)
+    tabContainer.Position = UDim2.new(0, 15, 0, 52)
+    tabContainer.BackgroundTransparency = 1
+    tabContainer.ZIndex = 6
+
+    local tabNames = { "Aimbot", "Camlock", "Visuals", "Rage", "Promo", "Settings" }
+
+    -- Tab button creation function
+    local function createTabButton(name, index)
+        local btn = Instance.new("TextButton", tabContainer)
+        btn.Size = UDim2.new(0, 60, 1, 0)
+        btn.Position = UDim2.new(0, (index - 1) * 65, 0, 0)
+        btn.Text = name
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 14
+        btn.TextColor3 = Color3.fromRGB(90, 20, 60)
+        btn.BackgroundColor3 = Color3.fromRGB(255, 190, 230)
+        btn.BorderSizePixel = 0
+        createUICorner(btn, 10)
+        btn.ZIndex = 6
+
+        -- Hover effect
+        btn.MouseEnter:Connect(function()
+            if not btn:GetAttribute("Active") then
+                fadeObject(btn, {BackgroundColor3 = Color3.fromRGB(255, 210, 240)}, 0.15)
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if not btn:GetAttribute("Active") then
+                fadeObject(btn, {BackgroundColor3 = Color3.fromRGB(255, 190, 230)}, 0.15)
+            end
+        end)
+
+        return btn
+    end
+
+    -- Create tabs and content frames
+    for i, name in ipairs(tabNames) do
+        local tabBtn = createTabButton(name, i)
+        tabs[name] = tabBtn
+
+        local contentFrame = Instance.new("ScrollingFrame", mainFrame)
+        contentFrame.Name = name .. "Content"
+        contentFrame.Size = UDim2.new(1, -30, 1, -115)
+        contentFrame.Position = UDim2.new(0, 15, 0, 110)
+        contentFrame.BackgroundTransparency = 1
+        contentFrame.ScrollBarThickness = 6
+        contentFrame.ZIndex = 5
+        contentFrame.Visible = false
+        tabContents[name] = contentFrame
+
+        -- UIListLayout for scrolling content
+        local layout = Instance.new("UIListLayout", contentFrame)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 10)
+    end
+
+    -- Activate first tab
+    local function activateTab(name)
+        for tabName, btn in pairs(tabs) do
+            local isActive = (tabName == name)
+            btn:SetAttribute("Active", isActive)
+            btn.TextColor3 = isActive and Color3.fromRGB(255, 100, 180) or Color3.fromRGB(90, 20, 60)
+            btn.BackgroundColor3 = isActive and Color3.fromRGB(255, 150, 210) or Color3.fromRGB(255, 190, 230)
+            tabContents[tabName].Visible = isActive
+        end
+        if config.SoundFX then playSound(mainFrame) end
+    end
+
+    for name, btn in pairs(tabs) do
+        btn.MouseButton1Click:Connect(function()
+            activateTab(name)
+        end)
+    end
+
+    activateTab("Aimbot")
+
+    -- Toggle creation helper
+    local function createToggle(name, parent, default, callback)
+        local btn = Instance.new("TextButton", parent)
+        btn.Size = UDim2.new(1, 0, 0, 44)
+        btn.BackgroundColor3 = default and Color3.fromRGB(255, 120, 180) or Color3.fromRGB(255, 210, 230)
+        btn.BorderSizePixel = 0
+        createUICorner(btn, 14)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 20
+        btn.TextColor3 = default and Color3.new(1, 1, 1) or Color3.fromRGB(150, 50, 90)
+        btn.Text = (default and "On: " or "Off: ") .. name
+
+        toggleStates[name] = default
+
+        btn.MouseEnter:Connect(function()
+            fadeObject(btn, {BackgroundColor3 = Color3.fromRGB(255, 140, 210)}, 0.15)
+        end)
+        btn.MouseLeave:Connect(function()
+            fadeObject(btn, {BackgroundColor3 = toggleStates[name] and Color3.fromRGB(255, 120, 180) or Color3.fromRGB(255, 210, 230)}, 0.15)
+        end)
+
+        btn.MouseButton1Click:Connect(function()
+            toggleStates[name] = not toggleStates[name]
+            btn.Text = (toggleStates[name] and "On: " or "Off: ") .. name
+            fadeObject(btn, {BackgroundColor3 = toggleStates[name] and Color3.fromRGB(255, 120, 180) or Color3.fromRGB(255, 210, 230)}, 0.15)
+            btn.TextColor3 = toggleStates[name] and Color3.new(1, 1, 1) or Color3.fromRGB(150, 50, 90)
+            if config.SoundFX then playSound(parent) end
+            if callback then callback(toggleStates[name]) end
+        end)
+        return btn
+    end
+
+    -- Slider helper
+    local function createSlider(labelText, parent, min, max, step, default, callback)
+        local container = Instance.new("Frame", parent)
+        container.Size = UDim2.new(1, 0, 0, 72)
+        container.BackgroundTransparency = 1
+
+        local label = Instance.new("TextLabel", container)
+        label.Size = UDim2.new(1, 0, 0, 22)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 16
+        label.TextColor3 = Color3.fromRGB(90, 20, 60)
+        label.Text = labelText
+
+        local sliderBar = Instance.new("Frame", container)
+        sliderBar.Size = UDim2.new(1, 0, 0, 12)
+        sliderBar.Position = UDim2.new(0, 0, 0, 40)
+        sliderBar.BackgroundColor3 = Color3.fromRGB(255, 190, 230)
+        sliderBar.BorderSizePixel = 0
+        createUICorner(sliderBar, 10)
+
+        local fill = Instance.new("Frame", sliderBar)
+        fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+        fill.BackgroundColor3 = Color3.fromRGB(255, 120, 180)
+        fill.BorderSizePixel = 0
+        createUICorner(fill, 10)
+
+        local valueLabel = Instance.new("TextLabel", container)
+        valueLabel.Size = UDim2.new(0, 40, 0, 22)
+        valueLabel.Position = UDim2.new(1, -45, 0, 10)
+        valueLabel.BackgroundTransparency = 1
+        valueLabel.Font = Enum.Font.GothamBold
+        valueLabel.TextSize = 18
+        valueLabel.TextColor3 = Color3.fromRGB(150, 40, 80)
+        valueLabel.Text = tostring(default)
+
+        local dragging = false
+
+        sliderBar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+            end
+        end)
+        sliderBar.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+        UIS.InputChanged:Connect(function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                local pos = UIS:GetMouseLocation()
+                local relativeX = math.clamp(pos.X - sliderBar.AbsolutePosition.X, 0, sliderBar.AbsoluteSize.X)
+                local percent = relativeX / sliderBar.AbsoluteSize.X
+                local value = math.floor((min + (max - min) * percent) / step + 0.5) * step
+                fill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
+                valueLabel.Text = tostring(value)
+                if callback then callback(value) end
+            end
+        end)
+    end
+
+    -- Tabs and toggles/sliders
+
+    -- Aimbot tab
+    do
+        local t = tabContents["Aimbot"]
+        createToggle("Silent Aim", t, false, function(enabled)
+            config.SilentAim = enabled
+        end)
+        createSlider("Silent Aim Sensitivity", t, 0, 1, 0.05, 0.5, function(value)
+            config.SilentAimSensitivity = value
+        end)
+        createToggle("Force Hit", t, false, function(enabled)
+            config.ForceHit = enabled
+        end)
+    end
+
+    -- Camlock tab
+    do
+        local t = tabContents["Camlock"]
+        local camlockToggle = createToggle("Enable Camlock", t, false, function(enabled)
+            toggleStates["Camlock"] = enabled
+            if enabled then
+                activateCamlockButton.Visible = true
+                fadeObject(activateCamlockButton, {BackgroundTransparency = 0}, 0.3)
+            else
+                fadeObject(activateCamlockButton, {BackgroundTransparency = 1}, 0.3):Play()
+                wait(0.3)
+                activateCamlockButton.Visible = false
+                camlockActive = false
+                lockedTarget = nil
+            end
+        end)
+
+        local predictionSlider = createSlider("Prediction", t, 0, 1, 0.05, config.CamlockPrediction, function(value)
+            config.CamlockPrediction = value
+        end)
+
+        local fovSlider = createSlider("FOV (degrees)", t, 30, 180, 1, config.CamlockFOV, function(value)
+            config.CamlockFOV = value
+        end)
+
+        -- Camlock activate button (hidden initially)
+        local activateCamlockButton = Instance.new("TextButton", t)
+        activateCamlockButton.Size = UDim2.new(1, 0, 0, 50)
+        activateCamlockButton.Position = UDim2.new(0, 0, 1, -60)
+        activateCamlockButton.BackgroundColor3 = Color3.fromRGB(255, 100, 180)
+        activateCamlockButton.TextColor3 = Color3.new(1, 1, 1)
+        activateCamlockButton.Font = Enum.Font.GothamBold
+        activateCamlockButton.TextSize = 24
+        activateCamlockButton.Text = "Activate Camlock"
+        createUICorner(activateCamlockButton, 18)
+        activateCamlockButton.Visible = false
+        activateCamlockButton.BackgroundTransparency = 1
+
+        activateCamlockButton.MouseEnter:Connect(function()
+            fadeObject(activateCamlockButton, {BackgroundColor3 = Color3.fromRGB(255, 140, 210)}, 0.15)
+        end)
+        activateCamlockButton.MouseLeave:Connect(function()
+            fadeObject(activateCamlockButton, {BackgroundColor3 = Color3.fromRGB(255, 100, 180)}, 0.15)
+        end)
+
+        local function findTarget()
+            local mouse = LocalPlayer:GetMouse()
+            local closestPlayer, shortestDist = nil, math.huge
+            local fov = config.CamlockFOV
+
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+                    local root = player.Character.HumanoidRootPart
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                    if onScreen then
+                        local mousePos = Vector2.new(mouse.X, mouse.Y)
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if dist < shortestDist and dist <= fov then
+                            shortestDist = dist
+                            closestPlayer = player
+                        end
+                    end
+                end
+            end
+            return closestPlayer
+        end
+
+        local function lockOnTarget()
+            if camlockActive then
+                camlockActive = false
+                lockedTarget = nil
+                activateCamlockButton.Text = "Activate Camlock"
+                notify("Camlock", "Camlock deactivated", 2)
+                if config.SoundFX then playSound(activateCamlockButton) end
+            else
+                local target = findTarget()
+                if target then
+                    camlockActive = true
+                    lockedTarget = target
+                    activateCamlockButton.Text = "Deactivate Camlock"
+                    notify("Camlock", "Locked onto: " .. target.Name, 2)
+                    if config.SoundFX then playSound(activateCamlockButton) end
+                else
+                    notify("Camlock", "No valid target found!", 2)
+                    if config.SoundFX then playSound(activateCamlockButton) end
+                end
+            end
+        end
+
+        activateCamlockButton.MouseButton1Click:Connect(lockOnTarget)
+    end
+
+    -- Visuals tab
+    do
+        local t = tabContents["Visuals"]
+        createToggle("ESP Boxes", t, config.ESPBoxes, function(enabled)
+            config.ESPBoxes = enabled
+        end)
+        createToggle("ESP Names", t, config.ESPNames, function(enabled)
+            config.ESPNames = enabled
+        end)
+        createSlider("Rainbow Speed", t, 0, 5, 0.1, config.ESPRainbowSpeed, function(value)
+            config.ESPRainbowSpeed = value
+        end)
+    end
+
+    -- Rage tab
+    do
+        local t = tabContents["Rage"]
+        createToggle("Auto Jump", t, config.AutoJump, function(enabled)
+            config.AutoJump = enabled
+        end)
+        createSlider("Speed Multiplier", t, 1, 5, 0.1, config.SpeedMultiplier, function(value)
+            config.SpeedMultiplier = value
+        end)
+    end
+
+    -- Promo tab (could be for messages or ads)
+    do
+        local t = tabContents["Promo"]
+        local promoLabel = Instance.new("TextLabel", t)
+        promoLabel.Size = UDim2.new(1, 0, 0, 150)
+        promoLabel.BackgroundTransparency = 1
+        promoLabel.TextColor3 = Color3.fromRGB(255, 100, 140)
+        promoLabel.Font = Enum.Font.GothamBold
+        promoLabel.TextSize = 22
+        promoLabel.Text = "🌸 Thank you for using Hello Kitty Lock! 🌸\n\nJoin our Discord for updates and giveaways:\nhttps://discord.gg/yourserver"
+        promoLabel.TextWrapped = true
+        promoLabel.TextYAlignment = Enum.TextYAlignment.Top
+        promoLabel.TextXAlignment = Enum.TextXAlignment.Center
+        promoLabel.Position = UDim2.new(0, 0, 0, 20)
+    end
+
+    -- Settings tab
+    do
+        local t = tabContents["Settings"]
+        createToggle("Sound Effects", t, config.SoundFX, function(enabled)
+            config.SoundFX = enabled
+        end)
+
+        local saveBtn = Instance.new("TextButton", t)
+        saveBtn.Size = UDim2.new(1, 0, 0, 50)
+        saveBtn.Position = UDim2.new(0, 0, 1, -60)
+        saveBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 180)
+        saveBtn.TextColor3 = Color3.new(1, 1, 1)
+        saveBtn.Font = Enum.Font.GothamBold
+        saveBtn.TextSize = 24
+        saveBtn.Text = "Save Settings"
+        createUICorner(saveBtn, 18)
+
+        saveBtn.MouseEnter:Connect(function()
+            fadeObject(saveBtn, {BackgroundColor3 = Color3.fromRGB(255, 140, 210)}, 0.15)
+        end)
+        saveBtn.MouseLeave:Connect(function()
+            fadeObject(saveBtn, {BackgroundColor3 = Color3.fromRGB(255, 100, 180)}, 0.15)
+        end)
+
+        saveBtn.MouseButton1Click:Connect(function()
+            saveConfig()
+            notify("Settings", "Settings saved successfully!", 2)
+            if config.SoundFX then playSound(saveBtn) end
+        end)
+    end
+
+    -- Camlock camera updating loop
+    RS.RenderStepped:Connect(function()
+        if toggleStates["Camlock"] and camlockActive and lockedTarget and lockedTarget.Character and lockedTarget.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = lockedTarget.Character.HumanoidRootPart
+            local predictedPos = hrp.Position + (hrp.Velocity * config.CamlockPrediction)
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
+        end
+    end)
+
+    return gui
+end
+
+submit.MouseButton1Click:Connect(function()
+    if isKeyValid(input.Text) then
+        destroyKeyUI()
+        local guiInst = createMainGUI()
+        if config.SoundFX then playSound(guiInst) end
+    else
+        notify("Invalid Key", "Please enter a valid key!", 2)
+        if config.SoundFX then playSound(frame) end
+    end
+end)
